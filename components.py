@@ -8,10 +8,6 @@ class layer:
         self.kernel_w = kernel_w
         self.kernel = np.zeros([out_channels, in_channels, kernel_h, kernel_w])
         self.bias = np.zeros([out_channels, 1])
-    def forward(self):
-        None
-    def backward(self):
-        None
 
 class fl_sigmoid(layer):
     def __init__(self, in_channels, out_channels):
@@ -21,6 +17,7 @@ class fl_sigmoid(layer):
         self.kernel = self.kernel.reshape(self.out_channels, self.in_channels)
     def forward(self, in_tensor):
         self.in_tensor = in_tensor.reshape(in_tensor.shape[0], -1)
+        assert self.in_tensor.shape[1] == self.kernel.shape[1]
         self.out_tensor = np.dot(self.in_tensor, self.kernel.T) + self.bias.T
         self.out_tensor = 1.0 / (1.0 + np.exp(-self.out_tensor))
         return self.out_tensor
@@ -32,16 +29,16 @@ class fl_sigmoid(layer):
         self.kernel -= lr * kernel_diff
         self.bias -= lr * bias_diff
 
-class conv_layer(layer):
-    
-    def __init__(self, in_channels, out_channels, kernel_h, kernel_w, same = True):
+class conv_layer(layer):    
+    def __init__(self, in_channels, out_channels, kernel_h, kernel_w, same = True, relu = True, bias = True):
         layer.__init__(self, in_channels, out_channels, kernel_h, kernel_w)
         self.init_param()
         self.same = same
-        
+        self.relu = relu
+        self.bias = bias
+
     def init_param(self):
-        self.kernel += 1
-        self.bias += 1
+        self.kernel = np.random.randn(self.out_channels, self.in_channels, self.kernel_h, self.kernel_w)
     
     @staticmethod
     def pad(in_tensor, pad_h, pad_w):
@@ -88,15 +85,27 @@ class conv_layer(layer):
         self.in_tensor = in_tensor
         
         self.out_tensor = conv_layer.convolution(in_tensor, self.kernel)
-        self.out_tensor += self.bias.reshape(1,self.out_channels,1,1)
-        
-        return self.out_tensor
+
+        if self.bias:
+            self.out_tensor += self.bias.reshape(1,self.out_channels,1,1)
+
+        out_tensor = self.out_tensor
+
+        if self.relu:
+            out_tensor[out_tensor < 0] = 0
+
+        return out_tensor
     
     def backward(self, out_diff_tensor, lr):
         assert out_diff_tensor.shape == self.out_tensor.shape
         
-        bias_diff = np.sum(out_diff_tensor, axis = (0,2,3)).reshape(self.bias.shape)
-        
+        if self.relu:
+            out_diff_tensor[self.out_tensor <= 0] = 0
+
+        if self.bias:
+            bias_diff = np.sum(out_diff_tensor, axis = (0,2,3)).reshape(self.bias.shape)
+            self.bias -= lr * bias_diff
+
         kernel_diff = conv_layer.convolution(self.in_tensor.transpose(1,0,2,3), out_diff_tensor.transpose(1,0,2,3))
         kernel_diff = kernel_diff.transpose(1,0,2,3)
         
@@ -109,5 +118,51 @@ class conv_layer(layer):
             pad_w = int((self.kernel_w-1)/2)
             self.in_diff_tensor = self.in_diff_tensor[:, :, pad_h:-pad_h, pad_w:-pad_w]
             
-        self.bias -= lr * bias_diff
+        
         self.kernel -= lr * kernel_diff
+
+class conv_sigmoid():
+    def __init__(self, in_channels, out_channels, in_h, in_w):
+        self.conv = conv_layer(in_channels, out_channels, in_h, in_w, same=False, relu=False, bias=True)
+
+class max_pooling:
+    def __init__(self, stride):
+        self.stride = stride
+
+    def forward(self, in_tensor):
+        assert in_tensor.shape[2] % self.stride == 0
+        assert in_tensor.shape[3] % self.stride == 0
+        self.in_tensor = in_tensor
+
+        batch_num = in_tensor.shape[0]
+        in_channels = in_tensor.shape[1]
+        in_h = in_tensor.shape[2]
+        in_w = in_tensor.shape[3]
+        out_h = int(in_h/self.stride)
+        out_w = int(in_w/self.stride)
+
+        extend_in = in_tensor.reshape(batch_num, in_channels, out_h, self.stride, out_w, self.stride)
+        extend_in = extend_in.transpose(0,1,2,4,3,5).reshape(batch_num, in_channels, out_h, out_w, -1)
+
+        self.maxindex = np.argmax(extend_in, axis = 4)
+        out_tensor = extend_in.max(axis = 4)
+
+        return out_tensor
+
+    def backward(self, out_diff_tensor):
+        batch_num = out_diff_tensor.shape[0]
+        in_channels = out_diff_tensor.shape[1]
+        out_h = out_diff_tensor.shape[2]
+        out_w = out_diff_tensor.shape[3]
+        
+        
+        out_diff_tensor = out_diff_tensor.reshape(-1)
+        self.maxindex = self.maxindex.reshape(-1)
+        
+        in_diff_tensor = np.zeros([batch_num*in_channels*out_h*out_w, self.stride*self.stride])
+        in_diff_tensor[range(batch_num*in_channels*out_h*out_w), self.maxindex] = out_diff_tensor
+        in_diff_tensor = in_diff_tensor.reshape(batch_num, in_channels, out_h, out_w, self.stride, self.stride)
+        in_diff_tensor = in_diff_tensor.transpose(0,1,2,4,3,5)
+        in_diff_tensor = in_diff_tensor.reshape(batch_num, in_channels, out_h*self.stride, out_w*self.stride)
+        
+        self.in_diff_tensor = in_diff_tensor

@@ -29,6 +29,6 @@ class dataloader:
         for i in range(self.batch_size):
             path, label = self.datalist[i + self.index].split(' ')
             images[i] = self.get_trans_img(path)
-            labels[i] = int(label) - 1
+            labels[i] = int(label)
         self.index += self.batch_size
         return images,labels

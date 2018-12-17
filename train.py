@@ -11,14 +11,18 @@ class trainer:
 
     def iterate(self):
         images, labels = self.dataset.get_next_batch()
-        if self.cls_num > 1:
-            one_hot_labels = np.eye(self.cls_num)[labels.reshape(-1)]
-        else:
-            one_hot_labels = labels.reshape(-1, 1)
-            
+
         out_tensor = self.net.forward(images)
+
+        if self.cls_num > 1:
+            one_hot_labels = np.eye(self.cls_num)[(labels-1).reshape(-1)].reshape(out_tensor.shape)
+        else:
+            one_hot_labels = (labels-1).reshape(out_tensor.shape)
+            
         loss = np.sum(-one_hot_labels * np.log(out_tensor)-(1-one_hot_labels) * np.log(1 - out_tensor)) / self.dataset.batch_size
         out_diff_tensor = (out_tensor - one_hot_labels) / out_tensor / (1 - out_tensor) / self.dataset.batch_size
+        out_diff_tensor = out_diff_tensor.reshape(out_tensor.shape)
+        
         self.net.backward(out_diff_tensor, self.lr)
         return loss
 
