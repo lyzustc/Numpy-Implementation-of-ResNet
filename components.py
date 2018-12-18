@@ -14,8 +14,9 @@ class fl_sigmoid(layer):
         layer.__init__(self, in_channels, out_channels, 1, 1)
         self.init_param()
     def init_param(self):
-        self.kernel = self.kernel.reshape(self.out_channels, self.in_channels)
+        self.kernel = np.random.randn(self.out_channels, self.in_channels)*0.01
     def forward(self, in_tensor):
+        self.shape = in_tensor.shape
         self.in_tensor = in_tensor.reshape(in_tensor.shape[0], -1)
         assert self.in_tensor.shape[1] == self.kernel.shape[1]
         self.out_tensor = np.dot(self.in_tensor, self.kernel.T) + self.bias.T
@@ -24,22 +25,22 @@ class fl_sigmoid(layer):
     def backward(self, out_diff_tensor, lr):
         nonlinear_diff = self.out_tensor * (1 - self.out_tensor) * out_diff_tensor
         kernel_diff = np.dot(nonlinear_diff.T, self.in_tensor).squeeze()
-        bias_diff = np.sum(nonlinear_diff)
-        self.in_diff_tensor = np.dot(nonlinear_diff, self.kernel).squeeze()
+        bias_diff = np.sum(nonlinear_diff, axis=0).reshape(self.bias.shape)
+        self.in_diff_tensor = np.dot(nonlinear_diff, self.kernel).reshape(self.shape)
         self.kernel -= lr * kernel_diff
         self.bias -= lr * bias_diff
 
 class conv_layer(layer):    
-    def __init__(self, in_channels, out_channels, kernel_h, kernel_w, same = True, relu = True, bias = True):
+    def __init__(self, in_channels, out_channels, kernel_h, kernel_w, same = True, relu = True, shift = True):
         layer.__init__(self, in_channels, out_channels, kernel_h, kernel_w)
         self.init_param()
         self.same = same
         self.relu = relu
-        self.bias = bias
+        self.shift = shift
 
     def init_param(self):
-        self.kernel = np.random.randn(self.out_channels, self.in_channels, self.kernel_h, self.kernel_w)
-    
+        self.kernel = np.random.randn(self.out_channels, self.in_channels, self.kernel_h, self.kernel_w)*0.01
+        #self.kernel += 1
     @staticmethod
     def pad(in_tensor, pad_h, pad_w):
         batch_num = in_tensor.shape[0]
@@ -86,7 +87,7 @@ class conv_layer(layer):
         
         self.out_tensor = conv_layer.convolution(in_tensor, self.kernel)
 
-        if self.bias:
+        if self.shift:
             self.out_tensor += self.bias.reshape(1,self.out_channels,1,1)
 
         out_tensor = self.out_tensor
@@ -102,7 +103,7 @@ class conv_layer(layer):
         if self.relu:
             out_diff_tensor[self.out_tensor <= 0] = 0
 
-        if self.bias:
+        if self.shift:
             bias_diff = np.sum(out_diff_tensor, axis = (0,2,3)).reshape(self.bias.shape)
             self.bias -= lr * bias_diff
 
@@ -120,10 +121,6 @@ class conv_layer(layer):
             
         
         self.kernel -= lr * kernel_diff
-
-class conv_sigmoid():
-    def __init__(self, in_channels, out_channels, in_h, in_w):
-        self.conv = conv_layer(in_channels, out_channels, in_h, in_w, same=False, relu=False, bias=True)
 
 class max_pooling:
     def __init__(self, stride):

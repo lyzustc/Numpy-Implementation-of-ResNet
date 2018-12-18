@@ -20,6 +20,7 @@ class dataloader:
         img = cv2.imread(path)
         img = (img[:,:,::-1].astype(np.float32))/255
         img = img.transpose([2,0,1])
+        img = (img - 0.5) * 2.0
         return img
     def get_next_batch(self):
         if self.index + self.batch_size >= self.len:

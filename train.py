@@ -21,9 +21,9 @@ class trainer:
             
         loss = np.sum(-one_hot_labels * np.log(out_tensor)-(1-one_hot_labels) * np.log(1 - out_tensor)) / self.dataset.batch_size
         out_diff_tensor = (out_tensor - one_hot_labels) / out_tensor / (1 - out_tensor) / self.dataset.batch_size
-        out_diff_tensor = out_diff_tensor.reshape(out_tensor.shape)
         
         self.net.backward(out_diff_tensor, self.lr)
+        
         return loss
 
 if __name__ == '__main__':
