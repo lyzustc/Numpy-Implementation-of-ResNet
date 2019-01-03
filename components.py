@@ -221,3 +221,88 @@ class max_pooling:
         in_diff_tensor = in_diff_tensor.reshape(batch_num, in_channels, out_h*self.stride, out_w*self.stride)
         
         self.in_diff_tensor = in_diff_tensor
+
+class average_pooling:
+    
+    def __init__(self, stride):
+        self.stride = stride
+
+    def forward(self, in_tensor):
+        assert in_tensor.shape[2] % self.stride == 0
+        assert in_tensor.shape[3] % self.stride == 0
+        self.in_tensor = in_tensor
+
+        batch_num = in_tensor.shape[0]
+        in_channels = in_tensor.shape[1]
+        in_h = in_tensor.shape[2]
+        in_w = in_tensor.shape[3]
+        out_h = int(in_h/self.stride)
+        out_w = int(in_w/self.stride)
+
+        extend_in = in_tensor.reshape(batch_num, in_channels, out_h, self.stride, out_w, self.stride)
+        extend_in = extend_in.transpose(0,1,2,4,3,5).reshape(batch_num, in_channels, out_h, out_w, -1)
+
+        out_tensor = extend_in.mean(axis = 4)
+
+        return out_tensor
+
+    def backward(self, out_diff_tensor):
+        batch_num = out_diff_tensor.shape[0]
+        in_channels = out_diff_tensor.shape[1]
+        out_h = out_diff_tensor.shape[2]
+        out_w = out_diff_tensor.shape[3]
+        
+        
+        out_diff_tensor = out_diff_tensor.reshape(-1, 1)
+        
+        in_diff_tensor = np.zeros([batch_num*in_channels*out_h*out_w, self.stride*self.stride])
+        in_diff_tensor += out_diff_tensor / self.stride / self.stride
+        in_diff_tensor = in_diff_tensor.reshape(batch_num, in_channels, out_h, out_w, self.stride, self.stride)
+        in_diff_tensor = in_diff_tensor.transpose(0,1,2,4,3,5)
+        in_diff_tensor = in_diff_tensor.reshape(batch_num, in_channels, out_h*self.stride, out_w*self.stride)
+        
+        self.in_diff_tensor = in_diff_tensor
+
+class bn_layer:
+
+    def __init__(self, neural_num, moving_rate, is_train = True):
+        self.gamma = np.random.uniform(low=0, high=1, size=neural_num)
+        self.bias = np.zeros([neural_num])
+        self.moving_avg = np.zeros([neural_num])
+        self.moving_var = np.ones([neural_num])
+        self.neural_num = neural_num
+        self.moving_rate = moving_rate
+        self.is_train = is_train
+        self.epsilon = 1e-5
+
+    def forward(self, in_tensor):
+        assert in_tensor.shape[1] == self.neural_num
+
+        self.in_tensor = in_tensor
+
+        if self.is_train:
+            mean = in_tensor.mean(axis=(0,2,3))
+            var = in_tensor.var(axis=(0,2,3))
+            self.moving_avg = mean * self.moving_rate + (1 - self.moving_rate) * self.moving_avg
+            self.moving_var = var * self.moving_rate + (1 - self.moving_rate) * self.moving_var
+            self.var = var
+        else:
+            mean = self.moving_avg
+            var = self.moving_var
+
+        normalized = (in_tensor - mean.reshape(1,-1,1,1)) / np.sqrt(var.reshape(1,-1,1,1)+self.epsilon)
+        out_tensor = self.gamma.reshape(1,-1,1,1) * normalized + self.bias.reshape(1,-1,1,1)
+
+        return out_tensor
+
+    def backward(self, out_diff_tensor, lr):
+        assert out_diff_tensor.shape == self.in_tensor.shape
+        assert self.is_train
+        
+        self.in_diff_tensor = self.gamma.reshape(1,-1,1,1) / np.sqrt(self.var.reshape(1,-1,1,1)+self.epsilon) * out_diff_tensor
+        
+        gamma_diff = self.in_tensor / np.sqrt(self.var.reshape(1,-1,1,1)+self.epsilon) * out_diff_tensor
+        self.gamma -= lr * gamma_diff
+
+        bias_diff = np.sum(out_diff_tensor, axis = (0,2,3))
+        self.bias -= lr * bias_diff
