@@ -1,63 +1,11 @@
 import numpy as np
+import os
 
-class layer:
-
-    def __init__(self, in_channels, out_channels, kernel_h, kernel_w):
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_h = kernel_h
-        self.kernel_w = kernel_w
-        self.kernel = np.zeros([out_channels, in_channels, kernel_h, kernel_w])
-        self.bias = np.zeros([out_channels, 1])
-
-class fc_layer(layer):
-
-    def __init__(self, in_channels, out_channels, relu=True, shift=True):
-        layer.__init__(self, in_channels, out_channels, 1, 1)
-        self.relu = relu
-        self.shift = shift
-        self.init_param()
-
-    def init_param(self):
-        self.kernel = np.random.uniform(
-            low = -np.sqrt(6.0/(self.out_channels + self.in_channels)),
-            high = np.sqrt(6.0/(self.in_channels + self.out_channels)),
-            size = (self.out_channels, self.in_channels)
-        )
-
-    def forward(self, in_tensor):
-        self.shape = in_tensor.shape
-        self.in_tensor = in_tensor.reshape(in_tensor.shape[0], -1)
-        assert self.in_tensor.shape[1] == self.kernel.shape[1]
-        self.out_tensor = np.dot(self.in_tensor, self.kernel.T) 
-        
-        if self.shift:
-            self.out_tensor += self.bias.T
-
-        if self.relu:
-            self.out_tensor[self.out_tensor < 0] = 0
-        
-        return self.out_tensor
-
-    def backward(self, out_diff_tensor, lr):
-
-        assert out_diff_tensor.shape == self.out_tensor.shape
-        
-        if self.relu:
-            out_diff_tensor[self.out_tensor <= 0] = 0
-
-        kernel_diff = np.dot(out_diff_tensor.T, self.in_tensor).squeeze()
-        self.in_diff_tensor = np.dot(out_diff_tensor, self.kernel).reshape(self.shape)
-        self.kernel -= lr * kernel_diff
-
-        if self.shift:
-            bias_diff = np.sum(out_diff_tensor, axis=0).reshape(self.bias.shape)
-            self.bias -= lr * bias_diff
-
-class fc_sigmoid(layer):
+class fc_sigmoid:
 
     def __init__(self, in_channels, out_channels):
-        layer.__init__(self, in_channels, out_channels, 1, 1)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.init_param()
 
     def init_param(self):
@@ -66,6 +14,7 @@ class fc_sigmoid(layer):
             high = np.sqrt(6.0/(self.in_channels + self.out_channels)),
             size = (self.out_channels, self.in_channels)
         )
+        self.bias = np.zeros([self.out_channels])
 
     def forward(self, in_tensor):
         self.shape = in_tensor.shape
@@ -83,22 +32,41 @@ class fc_sigmoid(layer):
         self.kernel -= lr * kernel_diff
         self.bias -= lr * bias_diff
 
-class conv_layer(layer):
+    def save(self, path):
+        if os.path.exists(path) == False:
+            os.mkdir(path)
+
+        np.save(os.path.join(path, "fc_weight.npy"), self.kernel)
+        np.save(os.path.join(path, "fc_bias.npy"), self.bias)
+
+    def load(self, path):
+        assert os.path.exists(path)
+
+        self.kernel = np.load(os.path.join(path, "fc_weight.npy"))
+        self.bias = np.load(os.path.join(path, "fc_bias.npy"))
+
+
+
+class conv_layer:
 
     def __init__(self, in_channels, out_channels, kernel_h, kernel_w, same = True, relu = True, shift = True):
-        layer.__init__(self, in_channels, out_channels, kernel_h, kernel_w)
-        self.init_param()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_h = kernel_h
+        self.kernel_w = kernel_w
         self.same = same
         self.relu = relu
         self.shift = shift
+
+        self.init_param()
 
     def init_param(self):
         self.kernel = np.random.uniform(
             low = -np.sqrt(6.0/(self.out_channels + self.in_channels * self.kernel_h * self.kernel_w)),
             high = np.sqrt(6.0/(self.in_channels + self.out_channels * self.kernel_h * self.kernel_w)),
-            size = self.kernel.shape
+            size = (self.out_channels, self.in_channels, self.kernel_h, self.kernel_w)
         )
-        #self.kernel += 1
+        self.bias = np.zeros([self.out_channels, 1]) if self.shift else None
 
     @staticmethod
     def pad(in_tensor, pad_h, pad_w):
@@ -176,8 +144,28 @@ class conv_layer(layer):
             pad_w = int((self.kernel_w-1)/2)
             self.in_diff_tensor = self.in_diff_tensor[:, :, pad_h:-pad_h, pad_w:-pad_w]
             
-        
         self.kernel -= lr * kernel_diff
+
+    def save(self, path, conv_num):
+        if os.path.exists(path) == False:
+            os.mkdir(path)
+
+        np.save(os.path.join(path, "conv{}_weight.npy".format(conv_num)), self.kernel)
+        if self.shift:
+            np.save(os.path.join(path, "conv{}_bias.npy".format(conv_num)), self.bias)
+        
+        return conv_num + 1
+
+    def load(self, path, conv_num):
+        assert os.path.exists(path)
+
+        self.kernel = np.load(os.path.join(path, "conv{}_weight.npy".format(conv_num)))
+        if self.shift:
+            self.bias = np.load(os.path.join(path, "conv{}_bias.npy").format(conv_num))
+        
+        return conv_num + 1
+
+
 
 class max_pooling:
     
@@ -222,6 +210,8 @@ class max_pooling:
         
         self.in_diff_tensor = in_diff_tensor
 
+
+
 class average_pooling:
     
     def __init__(self, stride):
@@ -262,6 +252,8 @@ class average_pooling:
         in_diff_tensor = in_diff_tensor.reshape(batch_num, in_channels, out_h*self.stride, out_w*self.stride)
         
         self.in_diff_tensor = in_diff_tensor
+
+
 
 class bn_layer:
 
@@ -306,3 +298,24 @@ class bn_layer:
 
         bias_diff = np.sum(out_diff_tensor, axis = (0,2,3))
         self.bias -= lr * bias_diff
+
+    def save(self, path, bn_num):
+        if os.path.exists(path) == False:
+            os.mkdir(path)
+
+        np.save(os.path.join(path, "bn{}_weight.npy".format(bn_num)), self.gamma)
+        np.save(os.path.join(path, "bn{}_bias.npy".format(bn_num)), self.bias)
+        np.save(os.path.join(path, "bn{}_mean.npy".format(bn_num)), self.moving_avg)
+        np.save(os.path.join(path, "bn{}_var.npy".format(bn_num)), self.moving_var)
+
+        return bn_num + 1
+
+    def load(self, path, bn_num):
+        assert os.path.exists(path)
+
+        self.gamma = np.load(os.path.join(path, "bn{}_weight.npy".format(bn_num)))
+        self.bias = np.load(os.path.join(path, "bn{}_bias.npy".format(bn_num)))
+        self.moving_avg = np.load(os.path.join(path, "bn{}_mean.npy".format(bn_num)))
+        self.moving_var = np.load(os.path.join(path, "bn{}_var.npy".format(bn_num)))
+
+        return bn_num + 1
