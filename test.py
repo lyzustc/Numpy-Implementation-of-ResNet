@@ -15,6 +15,7 @@ def get_test_images(filename, image_w, image_h):
     return img_tensor, label_tensor
 
 def test(net, filename, image_w, image_h):
+    net.eval()
     images, labels = get_test_images(filename, image_w, image_h)
     infers = net.inference(images)
     return np.sum(infers == (labels-1)) / infers.shape[0]

@@ -5,13 +5,25 @@ class ResBlock:
     def __init__(self, in_channels, out_channels, stride=1, shortcut=None):
         self.path1 = [
             conv_layer(in_channels, out_channels, 3, 3, stride = stride, shift=False),
-            bn_layer(out_channels, 0.1),
+            bn_layer(out_channels),
             relu(),
             conv_layer(out_channels, out_channels, 3, 3, shift=False),
-            bn_layer(out_channels, 0.1)
+            bn_layer(out_channels)
         ]
         self.path2 = shortcut
         self.relu = relu()
+    
+    def train(self):
+        self.path1[1].train()
+        self.path1[4].train()
+        if self.path2 is not None:
+            self.path2[1].train()
+
+    def eval(self):
+        self.path1[1].eval()
+        self.path1[4].eval()
+        if self.path2 is not None:
+            self.path2[1].eval()
 
     def forward(self, in_tensor):
         x1 = in_tensor.copy()
@@ -25,6 +37,22 @@ class ResBlock:
         self.out_tensor = self.relu.forward(x1+x2)
 
         return self.out_tensor
+
+    def backward(self, out_diff_tensor, lr):
+        assert self.out_tensor.shape == out_diff_tensor.shape
+        x1 = out_diff_tensor.copy()
+        x2 = out_diff_tensor.copy()
+
+        for l in range(len(self.path1)):
+            self.path1[-l].backward(x1, lr)
+            x1 = self.path1[-l].in_diff_tensor
+
+        if self.path2 is not None:
+            for l in range(len(self.path2)):
+                self.path1[-l].backward(x2, lr)
+                x2 = self.path1[-l].in_diff_tensor
+
+        self.in_diff_tensor = x1 + x2
 
     def save(self, path, conv_num, bn_num):
         conv_num = self.path1[0].save(path, conv_num)
@@ -68,6 +96,26 @@ class resnet34:
         self.avg = global_average_pooling()
         self.fc = fc_sigmoid(512, num_classes)
 
+    def train(self):
+        for l in self.layer1:
+            l.train()
+        for l in self.layer2:
+            l.train()
+        for l in self.layer3:
+            l.train()
+        for l in self.layer4:
+            l.train()
+
+    def eval(self):
+        for l in self.layer1:
+            l.eval()
+        for l in self.layer2:
+            l.eval()
+        for l in self.layer3:
+            l.eval()
+        for l in self.layer4:
+            l.eval()
+
     def stack_ResBlock(self, in_channels, out_channels, block_num, stride):
         shortcut = [
             conv_layer(in_channels, out_channels, 1, 1, stride=stride, shift=False),
@@ -94,10 +142,31 @@ class resnet34:
         for l in self.layer4:
             x = l.forward(x)
         x = self.avg.forward(x)
-        x = x.reshape(x.shape[0], -1)
         out_tensor = self.fc.forward(x)
         
         return out_tensor
+
+    def backward(self, out_diff_tensor, lr):
+        x = out_diff_tensor
+        self.fc.backward(x, lr)
+        x = self.fc.in_diff_tensor
+        self.avg.backward(x, lr)
+        x = self.avg.in_diff_tensor
+        for l in self.layer4:
+            l.backward(x, lr)
+            x = l.in_diff_tensor
+        for l in self.layer3:
+            l.backward(x, lr)
+            x = l.in_diff_tensor
+        for l in self.layer2:
+            l.backward(x, lr)
+            x = l.in_diff_tensor
+        for l in self.layer1:
+            l.backward(x, lr)
+            x = l.in_diff_tensor
+        for l in self.pre:
+            l.backward(x, lr)
+            x = l.in_diff_tensor
     
     def inference(self, in_tensor):
         out_tensor = self.forward(in_tensor).reshape(in_tensor.shape[0], -1)

@@ -211,7 +211,7 @@ class max_pooling:
         self.out_tensor = out_tensor
         return self.out_tensor
 
-    def backward(self, out_diff_tensor):
+    def backward(self, out_diff_tensor, lr=0):
         assert out_diff_tensor.shape == self.out_tensor.shape
         out_h = out_diff_tensor.shape[2]
         out_w = out_diff_tensor.shape[3]
@@ -232,7 +232,7 @@ class global_average_pooling:
         out_tensor = in_tensor.reshape(in_tensor.shape[0], in_tensor.shape[1], -1).mean(axis = -1)
         return out_tensor.reshape(in_tensor.shape[0], in_tensor.shape[1], 1, 1)
 
-    def backward(self, out_diff_tensor):
+    def backward(self, out_diff_tensor, lr=0):
         batch_num = self.in_tensor.shape[0]
         in_channels = self.in_tensor.shape[1]
         in_h = self.in_tensor.shape[2]
@@ -253,7 +253,7 @@ class relu:
         self.out_tensor[self.out_tensor < 0] = 0.0
         return self.out_tensor
 
-    def backward(self, out_diff_tensor):
+    def backward(self, out_diff_tensor, lr = 0):
         assert self.out_tensor.shape == out_diff_tensor.shape
         self.in_diff_tensor = out_diff_tensor[self.out_tensor == 0.0]
 
@@ -261,16 +261,22 @@ class relu:
 
 class bn_layer:
 
-    def __init__(self, neural_num, moving_rate = 0.1, is_train = True):
+    def __init__(self, neural_num, moving_rate = 0.1):
         self.gamma = np.random.uniform(low=0, high=1, size=neural_num)
         self.bias = np.zeros([neural_num])
         self.moving_avg = np.zeros([neural_num])
         self.moving_var = np.ones([neural_num])
         self.neural_num = neural_num
         self.moving_rate = moving_rate
-        self.is_train = is_train
+        self.is_train = True
         self.epsilon = 1e-5
 
+    def train(self):
+        self.is_train = True
+
+    def eval(self):
+        self.is_train = False
+        
     def forward(self, in_tensor):
         assert in_tensor.shape[1] == self.neural_num
 
