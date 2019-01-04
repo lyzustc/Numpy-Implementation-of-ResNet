@@ -67,7 +67,7 @@ class conv_layer:
             high = np.sqrt(6.0/(self.in_channels + self.out_channels * self.kernel_h * self.kernel_w)),
             size = (self.out_channels, self.in_channels, self.kernel_h, self.kernel_w)
         )
-        self.bias = np.zeros([self.out_channels, 1]) if self.shift else None
+        self.bias = np.zeros([self.out_channels]) if self.shift else None
 
     @staticmethod
     def pad(in_tensor, pad_h, pad_w):
@@ -213,15 +213,22 @@ class max_pooling:
 
     def backward(self, out_diff_tensor, lr=0):
         assert out_diff_tensor.shape == self.out_tensor.shape
+        batch_num = out_diff_tensor.shape[0]
+        in_channels = out_diff_tensor.shape[1]
         out_h = out_diff_tensor.shape[2]
         out_w = out_diff_tensor.shape[3]
         
         self.in_diff_tensor = np.zeros(list(self.in_tensor.shape))
         for i in range(out_h):
             for j in range(out_w):
-                h = int(self.maxindex[:,:,i,j]/self.kernel_h)
+                h = (self.maxindex[:,:,i,j]/self.kernel_h).astype(np.int32)
                 w = self.maxindex[:,:,i,j] - h * self.kernel_h
-                self.in_diff_tensor[:,:,i*self.stride+h,j*self.stride+w] += out_diff_tensor[:,:,i,j]
+                self.in_diff_tensor[range(batch_num), range(in_channels), i*self.stride+h, j*self.stride+w] += out_diff_tensor[:,:,i,j]
+
+        if self.same:
+            pad_h = int((self.kernel_h - 1) / 2)
+            pad_w = int((self.kernel_w - 1) / 2)
+            self.in_diff_tensor = self.in_diff_tensor[:, :, pad_h:-pad_h, pad_w:-pad_w]
 
 
 
@@ -276,7 +283,7 @@ class bn_layer:
 
     def eval(self):
         self.is_train = False
-        
+
     def forward(self, in_tensor):
         assert in_tensor.shape[1] == self.neural_num
 
@@ -288,12 +295,13 @@ class bn_layer:
             self.moving_avg = mean * self.moving_rate + (1 - self.moving_rate) * self.moving_avg
             self.moving_var = var * self.moving_rate + (1 - self.moving_rate) * self.moving_var
             self.var = var
+            self.mean = mean
         else:
             mean = self.moving_avg
             var = self.moving_var
 
-        normalized = (in_tensor - mean.reshape(1,-1,1,1)) / np.sqrt(var.reshape(1,-1,1,1)+self.epsilon)
-        out_tensor = self.gamma.reshape(1,-1,1,1) * normalized + self.bias.reshape(1,-1,1,1)
+        self.normalized = (in_tensor - mean.reshape(1,-1,1,1)) / np.sqrt(var.reshape(1,-1,1,1)+self.epsilon)
+        out_tensor = self.gamma.reshape(1,-1,1,1) * self.normalized + self.bias.reshape(1,-1,1,1)
 
         return out_tensor
 
@@ -301,13 +309,21 @@ class bn_layer:
         assert out_diff_tensor.shape == self.in_tensor.shape
         assert self.is_train
         
-        self.in_diff_tensor = self.gamma.reshape(1,-1,1,1) / np.sqrt(self.var.reshape(1,-1,1,1)+self.epsilon) * out_diff_tensor
-        
-        gamma_diff = self.in_tensor / np.sqrt(self.var.reshape(1,-1,1,1)+self.epsilon) * out_diff_tensor
+        m = self.in_tensor.shape[0] * self.in_tensor.shape[2] * self.in_tensor.shape[3]
+
+        normalized_diff = self.gamma.reshape(1,-1,1,1) * out_diff_tensor
+        var_diff = -0.5 * np.sum(normalized_diff*self.normalized, axis=(0,2,3)) / (self.var + self.epsilon)
+        mean_diff = -1.0 * np.sum(normalized_diff, axis=(0,2,3)) / np.sqrt(self.var + self.epsilon)
+        in_diff_tensor1 = normalized_diff / np.sqrt(self.var.reshape(1,-1,1,1)+self.epsilon)
+        in_diff_tensor2 = var_diff.reshape(1,-1,1,1) * (self.in_tensor - self.mean.reshape(1,-1,1,1)) * 2 / m
+        in_diff_tensor3 = mean_diff.reshape(1,-1,1,1) / m
+        self.in_diff_tensor = in_diff_tensor1 + in_diff_tensor2 + in_diff_tensor3
+
+        gamma_diff = np.sum(self.normalized * out_diff_tensor, axis=(0,2,3))
         self.gamma -= lr * gamma_diff
 
-        bias_diff = np.sum(out_diff_tensor, axis = (0,2,3))
-        self.bias -= lr * bias_diff
+        bias_diff = np.sum(out_diff_tensor, axis=(0,2,3))
+        self.bias -= lr * bias_diff 
 
     def save(self, path, bn_num):
         if os.path.exists(path) == False:

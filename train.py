@@ -1,13 +1,17 @@
 from data import *
 from model import *
 from test import *
+import matplotlib.pyplot as plt
 
 class trainer:
-    def __init__(self, model, dataset, lr):
+    def __init__(self, model, dataset, init_lr):
         self.dataset = dataset
         self.net = model
-        self.lr = lr
+        self.lr = init_lr
         self.cls_num = self.net.out_channels
+
+    def set_lr(self, lr):
+        self.lr = lr
 
     def iterate(self):
         images, labels = self.dataset.get_next_batch()
@@ -26,5 +30,37 @@ class trainer:
         
         return loss
 
+
+
 if __name__ == '__main__':
-    a = single_layer_network(3,30)
+    batch_size = 32
+    image_h = 64
+    image_w = 64
+    dataset = dataloader("train.txt", batch_size, image_h, image_w)
+
+    model = resnet34(20)
+
+    init_lr = 0.01
+    trainer1 = trainer(model, dataset, init_lr)
+    loss = []
+    accurate = []
+    temp = 0
+
+    model.train()
+    for i in range(50000):
+        temp += trainer1.iterate().numpy()
+        if i % 10 == 0 and i != 0:
+            loss.append(temp / 10)
+            print("iteration = {} || loss = {}".format(str(i), str(temp/10)))
+            temp = 0
+            if i % 100 == 0:
+                model.eval()
+                accurate.append(test(model, "test.txt", image_h, image_w))
+                model.save("model/model{}".format(i))
+                model.train()
+        plt.figure(figsize=(10,5))       
+        plt.subplot(1,2,1)
+        plt.plot(loss)
+        plt.subplot(1,2,2)
+        plt.plot(accurate)
+        plt.show()
