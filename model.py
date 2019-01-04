@@ -1,120 +1,140 @@
 from components import *
 
-class single_layer_network:
-    def __init__(self, in_channels, out_channels):
-        self.fc_sigmoid = fc_sigmoid(in_channels, out_channels)
-        self.out_channels = out_channels
-    def forward(self, in_tensor):
-        return self.fc_sigmoid.forward(in_tensor)
-    def backward(self, out_diff_tensor, lr):
-        self.fc_sigmoid.backward(out_diff_tensor, lr)
-    def inference(self, in_tensor):
-        out_tensor = self.forward(in_tensor).reshape(in_tensor.shape[0], self.out_channels)
-        return np.argmax(out_tensor, axis=1)
+class ResBlock:
 
-class one_conv_network:
-    def __init__(self, out_channels, image_h, image_w):
-        self.conv = conv_layer(3, 8, 3, 3)
-        self.pool = max_pooling(2)
-        self.fc = fc_sigmoid(int(image_h/2)*int(image_w/2)*8, out_channels)
-        self.out_channels = out_channels
-    def forward(self, in_tensor):
-        feature = self.pool.forward(self.conv.forward(in_tensor))
-        pred = self.fc.forward(feature)
-        return pred
-    def backward(self, out_diff_tensor, lr):
-        self.fc.backward(out_diff_tensor, lr)
-        self.pool.backward(self.fc.in_diff_tensor)
-        self.conv.backward(self.pool.in_diff_tensor, lr)
-    def inference(self, in_tensor):
-        out_tensor = self.forward(in_tensor).reshape(in_tensor.shape[0], self.out_channels)
-        return np.argmax(out_tensor, axis=1)
-
-class three_conv_network:
-    def __init__(self, out_channels, image_h, image_w):
-        self.conv1 = conv_layer(3, 8, 3, 3)
-        self.pool1 = max_pooling(2)
-        self.conv2 = conv_layer(8, 16, 3, 3)
-        self.pool2 = max_pooling(2)
-        self.conv3 = conv_layer(16, 32, 3, 3)
-        self.pool3 = max_pooling(2)
-        self.fc = fc_sigmoid(32*int(image_h/8)*int(image_w/8), out_channels)
-        self.out_channels = out_channels
+    def __init__(self, in_channels, out_channels, stride=1, shortcut=None):
+        self.path1 = [
+            conv_layer(in_channels, out_channels, 3, 3, stride = stride, shift=False),
+            bn_layer(out_channels, 0.1),
+            relu(),
+            conv_layer(out_channels, out_channels, 3, 3, shift=False),
+            bn_layer(out_channels, 0.1)
+        ]
+        self.path2 = shortcut
+        self.relu = relu()
 
     def forward(self, in_tensor):
-        feature1 = self.pool1.forward(self.conv1.forward(in_tensor))
-        feature2 = self.pool2.forward(self.conv2.forward(feature1))
-        feature3 = self.pool3.forward(self.conv3.forward(feature2))
-        pred = self.fc.forward(feature3)
-        
-        return pred
+        x1 = in_tensor.copy()
+        x2 = in_tensor.copy()
 
-    def backward(self, out_diff_tensor, lr):
-        self.fc.backward(out_diff_tensor, lr)
-        self.pool3.backward(self.fc.in_diff_tensor)
-        self.conv3.backward(self.pool3.in_diff_tensor, lr)
-        self.pool2.backward(self.conv3.in_diff_tensor)
-        self.conv2.backward(self.pool2.in_diff_tensor, lr)
-        self.pool1.backward(self.conv2.in_diff_tensor)
-        self.conv1.backward(self.pool1.in_diff_tensor, lr)
+        for l in self.path1:
+            x1 = l.forward(x1)
+        if self.path2 is not None:
+            for l in self.path2:
+                x2 = l.forward(x2)
+        self.out_tensor = self.relu.forward(x1+x2)
 
-    def inference(self, in_tensor):
-        out_tensor = self.forward(in_tensor).reshape(in_tensor.shape[0], self.out_channels)
-        return np.argmax(out_tensor, axis=1)
+        return self.out_tensor
 
-class vgg:
+    def save(self, path, conv_num, bn_num):
+        conv_num = self.path1[0].save(path, conv_num)
+        bn_num = self.path1[1].save(path, bn_num)
+        conv_num = self.path1[3].save(path, conv_num)
+        bn_num = self.path1[4].save(path, bn_num)
 
-    def __init__(self, out_channels, img_h, img_w):
-        self.conv1_1 = conv_layer(3, 64, 3, 3)
-        self.conv1_2 = conv_layer(64, 64, 3, 3)
-        self.pool1 = max_pooling(2)
-        self.conv2_1 = conv_layer(64, 128, 3, 3)
-        self.conv2_2 = conv_layer(128, 128, 3, 3)
-        self.pool2 = max_pooling(2)
-        self.conv3_1 = conv_layer(128, 256, 3, 3)
-        self.conv3_2 = conv_layer(256, 256, 3, 3)
-        self.conv3_3 = conv_layer(256, 256, 3, 3)
-        self.pool3 = max_pooling(2)
-        self.conv4_1 = conv_layer(256, 512, 3, 3)
-        self.conv4_2 = conv_layer(512, 512, 3, 3)
-        self.conv4_3 = conv_layer(512, 512, 3, 3)
-        self.pool4 = max_pooling(2)
-        self.fc1 = fc_layer(int(img_h/16)*int(img_w/16)*512, 4096)
-        self.fc2 = fc_layer(4096, 4096)
-        self.fc3 = fc_sigmoid(4096, out_channels)
-        self.out_channels = out_channels
+        if self.path2 is not None:
+            conv_num = self.path2[0].save(path, conv_num)
+            bn_num = self.path2[1].save(path, bn_num)
+
+        return conv_num, bn_num
+
+    def load(self, path, conv_num, bn_num):
+        conv_num = self.path1[0].load(path, conv_num)
+        bn_num = self.path1[1].load(path, bn_num)
+        conv_num = self.path1[3].load(path, conv_num)
+        bn_num = self.path1[4].load(path, bn_num)
+
+        if self.path2 is not None:
+            conv_num = self.path2[0].load(path, conv_num)
+            bn_num = self.path2[1].load(path, bn_num)
+
+        return conv_num, bn_num
+
+
+
+class resnet34:
     
+    def __init__(self, num_classes):
+        self.pre = [
+            conv_layer(3, 64, 7, 7, stride=2, shift=False),
+            bn_layer(64),
+            relu(),
+            max_pooling(3,3,2,same=True)
+        ]
+        self.layer1 = self.stack_ResBlock(64, 64, 3, 1)
+        self.layer2 = self.stack_ResBlock(64, 128, 4, 2)
+        self.layer3 = self.stack_ResBlock(128, 256, 6, 2)
+        self.layer4 = self.stack_ResBlock(256, 512, 3, 2)
+        self.avg = global_average_pooling()
+        self.fc = fc_sigmoid(512, num_classes)
+
+    def stack_ResBlock(self, in_channels, out_channels, block_num, stride):
+        shortcut = [
+            conv_layer(in_channels, out_channels, 1, 1, stride=stride, shift=False),
+            bn_layer(out_channels)
+        ]
+        layers = []
+        layers.append(ResBlock(in_channels, out_channels, stride=stride, shortcut=shortcut))
+
+        for _ in range(block_num-1):
+            layers.append(ResBlock(out_channels, out_channels))
+
+        return layers
+
     def forward(self, in_tensor):
-        feature1 = self.pool1.forward(self.conv1_2.forward(self.conv1_1.forward(in_tensor)))
-        feature2 = self.pool2.forward(self.conv2_2.forward(self.conv2_1.forward(feature1)))
-        feature3 = self.pool3.forward(self.conv3_3.forward(self.conv3_2.forward(self.conv3_1.forward(feature2))))
-        feature4 = self.pool4.forward(self.conv4_3.forward(self.conv4_2.forward(self.conv4_1.forward(feature3))))
-        pred = self.fc3.forward(self.fc2.forward(self.fc1.forward(feature4)))
-        return pred
-
-    def backward(self, out_diff_tensor, lr):
-        self.fc3.backward(out_diff_tensor, lr)
-        self.fc2.backward(self.fc3.in_diff_tensor, lr)
-        self.fc1.backward(self.fc2.in_diff_tensor, lr)
-
-        self.pool4.backward(self.fc1.in_diff_tensor)
-        self.conv4_3.backward(self.pool4.in_diff_tensor, lr)
-        self.conv4_2.backward(self.conv4_3.in_diff_tensor, lr)
-        self.conv4_1.backward(self.conv4_2.in_diff_tensor, lr)
-
-        self.pool3.backward(self.conv4_1.in_diff_tensor)
-        self.conv3_3.backward(self.pool3.in_diff_tensor, lr)
-        self.conv3_2.backward(self.conv3_3.in_diff_tensor, lr)
-        self.conv3_1.backward(self.conv3_2.in_diff_tensor, lr)
-
-        self.pool2.backward(self.conv3_1.in_diff_tensor)
-        self.conv2_2.backward(self.pool2.in_diff_tensor, lr)
-        self.conv2_1.backward(self.conv2_2.in_diff_tensor, lr)
-
-        self.pool1.backward(self.conv2_1.in_diff_tensor)
-        self.conv1_2.backward(self.pool1.in_diff_tensor, lr)
-        self.conv1_1.backward(self.conv1_2.in_diff_tensor, lr)
-
+        x = in_tensor
+        for l in self.pre:
+            x = l.forward(x)
+        for l in self.layer1:
+            x = l.forward(x)
+        for l in self.layer2:
+            x = l.forward(x)
+        for l in self.layer3:
+            x = l.forward(x)
+        for l in self.layer4:
+            x = l.forward(x)
+        x = self.avg.forward(x)
+        x = x.reshape(x.shape[0], -1)
+        out_tensor = self.fc.forward(x)
+        
+        return out_tensor
+    
     def inference(self, in_tensor):
-        out_tensor = self.forward(in_tensor).reshape(in_tensor.shape[0], self.out_channels)
+        out_tensor = self.forward(in_tensor).reshape(in_tensor.shape[0], -1)
         return np.argmax(out_tensor, axis=1)
+
+    def save(self, path):
+        conv_num = 0
+        bn_num = 0
+
+        conv_num = self.pre[0].save(path, conv_num)
+        bn_num = self.pre[1].save(path, bn_num)
+
+        for l in self.layer1:
+            conv_num, bn_num = l.save(path, conv_num, bn_num)
+        for l in self.layer2:
+            conv_num, bn_num = l.save(path, conv_num, bn_num)
+        for l in self.layer3:
+            conv_num, bn_num = l.save(path, conv_num, bn_num)
+        for l in self.layer4:
+            conv_num, bn_num = l.save(path, conv_num, bn_num)
+
+        self.fc.save(path)
+
+    def load(self, path):
+        conv_num = 0
+        bn_num = 0
+
+        conv_num = self.pre[0].load(path, conv_num)
+        bn_num = self.pre[1].load(path, bn_num)
+
+        for l in self.layer1:
+            conv_num, bn_num = l.load(path, conv_num, bn_num)
+        for l in self.layer2:
+            conv_num, bn_num = l.load(path, conv_num, bn_num)
+        for l in self.layer3:
+            conv_num, bn_num = l.load(path, conv_num, bn_num)
+        for l in self.layer4:
+            conv_num, bn_num = l.load(path, conv_num, bn_num)
+
+        self.fc.load(path)
