@@ -41,14 +41,14 @@ if __name__ == '__main__':
     model = resnet34(20)
 
     init_lr = 0.01
-    trainer1 = trainer(model, dataset, init_lr)
+    train = trainer(model, dataset, init_lr)
     loss = []
     accurate = []
     temp = 0
 
     model.train()
-    for i in range(50000):
-        temp += trainer1.iterate().numpy()
+    for i in range(25000):
+        temp += train.iterate().numpy()
         if i % 10 == 0 and i != 0:
             loss.append(temp / 10)
             print("iteration = {} || loss = {}".format(str(i), str(temp/10)))
@@ -64,3 +64,6 @@ if __name__ == '__main__':
         plt.subplot(1,2,2)
         plt.plot(accurate)
         plt.show()
+
+        if i == 15000:
+            train.set_lr(0.001)

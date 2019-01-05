@@ -40,18 +40,21 @@ class ResBlock:
 
     def backward(self, out_diff_tensor, lr):
         assert self.out_tensor.shape == out_diff_tensor.shape
-        x1 = out_diff_tensor.copy()
-        x2 = out_diff_tensor.copy()
 
-        for l in range(len(self.path1)):
+        self.relu.backward(out_diff_tensor,lr)
+        x1 = self.relu.in_diff_tensor
+        x2 = x1.copy()
+
+        for l in range(1, len(self.path1)+1):
             self.path1[-l].backward(x1, lr)
             x1 = self.path1[-l].in_diff_tensor
 
         if self.path2 is not None:
-            for l in range(len(self.path2)):
-                self.path1[-l].backward(x2, lr)
-                x2 = self.path1[-l].in_diff_tensor
-
+            for l in range(1, len(self.path2)+1):
+                self.path2[-l].backward(x2, lr)
+                x2 = self.path2[-l].in_diff_tensor
+                print(x2.shape)
+        
         self.in_diff_tensor = x1 + x2
 
     def save(self, path, conv_num, bn_num):
@@ -97,6 +100,7 @@ class resnet34:
         self.fc = fc_sigmoid(512, num_classes)
 
     def train(self):
+        self.pre[1].train()
         for l in self.layer1:
             l.train()
         for l in self.layer2:
@@ -107,6 +111,7 @@ class resnet34:
             l.train()
 
     def eval(self):
+        self.pre[1].eval()
         for l in self.layer1:
             l.eval()
         for l in self.layer2:
@@ -152,21 +157,23 @@ class resnet34:
         x = self.fc.in_diff_tensor
         self.avg.backward(x, lr)
         x = self.avg.in_diff_tensor
-        for l in self.layer4:
-            l.backward(x, lr)
-            x = l.in_diff_tensor
-        for l in self.layer3:
-            l.backward(x, lr)
-            x = l.in_diff_tensor
-        for l in self.layer2:
-            l.backward(x, lr)
-            x = l.in_diff_tensor
-        for l in self.layer1:
-            l.backward(x, lr)
-            x = l.in_diff_tensor
-        for l in self.pre:
-            l.backward(x, lr)
-            x = l.in_diff_tensor
+
+        for l in range(1, len(self.layer4)+1):
+            self.layer4[-l].backward(x, lr)
+            x = self.layer4[-l].in_diff_tensor
+        for l in range(1, len(self.layer3)+1):
+            self.layer3[-l].backward(x, lr)
+            x = self.layer3[-l].in_diff_tensor
+        for l in range(1, len(self.layer2)+1):
+            self.layer2[-l].backward(x, lr)
+            x = self.layer2[-l].in_diff_tensor
+        for l in range(1, len(self.layer1)+1):
+            self.layer1[-l].backward(x, lr)
+            x = self.layer1[-l].in_diff_tensor
+        for l in range(1, len(self.pre)+1):
+            self.pre[-l].backward(x, lr)
+            x = self.pre[-l].in_diff_tensor
+        self.in_diff_tensor = x
     
     def inference(self, in_tensor):
         out_tensor = self.forward(in_tensor).reshape(in_tensor.shape[0], -1)

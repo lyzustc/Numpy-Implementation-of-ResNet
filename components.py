@@ -18,7 +18,7 @@ class fc_sigmoid:
 
     def forward(self, in_tensor):
         self.shape = in_tensor.shape
-        self.in_tensor = in_tensor.reshape(in_tensor.shape[0], -1)
+        self.in_tensor = in_tensor.reshape(in_tensor.shape[0], -1).copy()
         assert self.in_tensor.shape[1] == self.kernel.shape[1]
         self.out_tensor = np.dot(self.in_tensor, self.kernel.T) + self.bias.T
         self.out_tensor = 1.0 / (1.0 + np.exp(-self.out_tensor))
@@ -111,7 +111,7 @@ class conv_layer:
         if self.same:
             in_tensor = conv_layer.pad(in_tensor, int((self.kernel_h-1)/2), int((self.kernel_w-1)/2))
         
-        self.in_tensor = in_tensor
+        self.in_tensor = in_tensor.copy()
         
         self.out_tensor = conv_layer.convolution(in_tensor, self.kernel, self.stride)
 
@@ -143,11 +143,18 @@ class conv_layer:
         kernel_trans = self.kernel.reshape(self.out_channels, self.in_channels, self.kernel_h*self.kernel_w)
         kernel_trans = kernel_trans[:,:,::-1].reshape(self.kernel.shape)
         self.in_diff_tensor = conv_layer.convolution(padded, kernel_trans.transpose(1,0,2,3))
+        assert self.in_diff_tensor.shape == self.in_tensor.shape
+
         if self.same:
             pad_h = int((self.kernel_h-1)/2)
             pad_w = int((self.kernel_w-1)/2)
-            self.in_diff_tensor = self.in_diff_tensor[:, :, pad_h:-pad_h, pad_w:-pad_w]
-            
+            if pad_h == 0 and pad_w != 0:
+                self.in_diff_tensor = self.in_diff_tensor[:, :, :, pad_w:-pad_w]
+            elif pad_h !=0 and pad_w == 0:
+                self.in_diff_tensor = self.in_diff_tensor[:, :, pad_h:-pad_h, :]
+            elif pad_h != 0 and pad_w != 0:
+                self.in_diff_tensor = self.in_diff_tensor[:, :, pad_h:-pad_h, pad_w:-pad_w]
+
         self.kernel -= lr * kernel_diff
 
     def save(self, path, conv_num):
@@ -192,7 +199,7 @@ class max_pooling:
     def forward(self, in_tensor):
         if self.same:
             in_tensor = max_pooling.pad(in_tensor, int((self.kernel_h-1)/2), int((self.kernel_w-1)/2))
-        self.in_tensor = in_tensor
+        self.in_tensor = in_tensor.copy()
 
         batch_num = in_tensor.shape[0]
         in_channels = in_tensor.shape[1]
@@ -235,18 +242,18 @@ class max_pooling:
 class global_average_pooling:
     
     def forward(self, in_tensor):
-        self.in_tensor = in_tensor
+        self.shape = in_tensor.shape
         out_tensor = in_tensor.reshape(in_tensor.shape[0], in_tensor.shape[1], -1).mean(axis = -1)
         return out_tensor.reshape(in_tensor.shape[0], in_tensor.shape[1], 1, 1)
 
     def backward(self, out_diff_tensor, lr=0):
-        batch_num = self.in_tensor.shape[0]
-        in_channels = self.in_tensor.shape[1]
-        in_h = self.in_tensor.shape[2]
-        in_w = self.in_tensor.shape[3]
+        batch_num = self.shape[0]
+        in_channels = self.shape[1]
+        in_h = self.shape[2]
+        in_w = self.shape[3]
         assert out_diff_tensor.shape == (batch_num, in_channels, 1, 1)
 
-        in_diff_tensor = np.zeros(list(self.in_tensor.shape))
+        in_diff_tensor = np.zeros(list(self.shape))
         in_diff_tensor += out_diff_tensor / (in_h * in_w)
         
         self.in_diff_tensor = in_diff_tensor
@@ -256,13 +263,15 @@ class global_average_pooling:
 class relu:
 
     def forward(self, in_tensor):
-        self.out_tensor = in_tensor
-        self.out_tensor[self.out_tensor < 0] = 0.0
+        self.in_tensor = in_tensor.copy()
+        self.out_tensor = in_tensor.copy()
+        self.out_tensor[self.in_tensor < 0.0] = 0.0
         return self.out_tensor
 
     def backward(self, out_diff_tensor, lr = 0):
         assert self.out_tensor.shape == out_diff_tensor.shape
-        self.in_diff_tensor = out_diff_tensor[self.out_tensor == 0.0]
+        self.in_diff_tensor = out_diff_tensor.copy()
+        self.in_diff_tensor[self.in_tensor < 0.0] = 0.0
 
 
 
@@ -287,7 +296,7 @@ class bn_layer:
     def forward(self, in_tensor):
         assert in_tensor.shape[1] == self.neural_num
 
-        self.in_tensor = in_tensor
+        self.in_tensor = in_tensor.copy()
 
         if self.is_train:
             mean = in_tensor.mean(axis=(0,2,3))
@@ -308,7 +317,7 @@ class bn_layer:
     def backward(self, out_diff_tensor, lr):
         assert out_diff_tensor.shape == self.in_tensor.shape
         assert self.is_train
-        
+
         m = self.in_tensor.shape[0] * self.in_tensor.shape[2] * self.in_tensor.shape[3]
 
         normalized_diff = self.gamma.reshape(1,-1,1,1) * out_diff_tensor
