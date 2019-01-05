@@ -4,11 +4,11 @@ from test import *
 import matplotlib.pyplot as plt
 
 class trainer:
-    def __init__(self, model, dataset, init_lr):
+    def __init__(self, model, dataset, num_classes, init_lr):
         self.dataset = dataset
         self.net = model
         self.lr = init_lr
-        self.cls_num = self.net.out_channels
+        self.cls_num = num_classes
 
     def set_lr(self, lr):
         self.lr = lr
@@ -33,7 +33,7 @@ class trainer:
 
 
 if __name__ == '__main__':
-    batch_size = 32
+    batch_size = 8
     image_h = 64
     image_w = 64
     dataset = dataloader("train.txt", batch_size, image_h, image_w)
@@ -41,14 +41,16 @@ if __name__ == '__main__':
     model = resnet34(20)
 
     init_lr = 0.01
-    train = trainer(model, dataset, init_lr)
+    train = trainer(model, dataset, 20, init_lr)
     loss = []
     accurate = []
     temp = 0
 
     model.train()
+    plt.figure(figsize=(10,5))
+    plt.ion()
     for i in range(25000):
-        temp += train.iterate().numpy()
+        temp += train.iterate()
         if i % 10 == 0 and i != 0:
             loss.append(temp / 10)
             print("iteration = {} || loss = {}".format(str(i), str(temp/10)))
@@ -56,14 +58,17 @@ if __name__ == '__main__':
             if i % 100 == 0:
                 model.eval()
                 accurate.append(test(model, "test.txt", image_h, image_w))
-                model.save("model/model{}".format(i))
+                model.save("model2")
                 model.train()
-        plt.figure(figsize=(10,5))       
+        plt.cla()       
         plt.subplot(1,2,1)
         plt.plot(loss)
         plt.subplot(1,2,2)
         plt.plot(accurate)
-        plt.show()
+        plt.pause(0.1)
 
         if i == 15000:
             train.set_lr(0.001)
+
+    plt.ioff()
+    plt.show()

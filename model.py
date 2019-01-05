@@ -53,7 +53,6 @@ class ResBlock:
             for l in range(1, len(self.path2)+1):
                 self.path2[-l].backward(x2, lr)
                 x2 = self.path2[-l].in_diff_tensor
-                print(x2.shape)
         
         self.in_diff_tensor = x1 + x2
 
