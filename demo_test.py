@@ -9,7 +9,7 @@ def get_demo_images(filename, image_path, image_h=64, image_w=64):
     img_tensor = np.zeros([len(filelist), 3, image_h, image_w])
     label_tensor = np.zeros([len(filelist)],dtype=np.int32)
     for i in range(len(filelist)):
-        num, label = filelist[i].split(" ")
+        num, label = filelist[i].split("\t")
         img = cv2.imread(os.path.join(image_path, "{}.JPEG".format(str(num))))
         #img = cv2.imread(num)
         img = img[:,:,::-1].astype(np.float32)
@@ -55,6 +55,6 @@ def demo(model_path, filename, image_path, image_h=64, image_w=64):
 
 if __name__ == "__main__":
     model_path = "model"
-    filename = "test.txt"
-    image_path = "test"
+    filename = "test_annotation"
+    image_path = "test_images"
     demo(model_path, filename, image_path)

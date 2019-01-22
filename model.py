@@ -181,7 +181,10 @@ class resnet34:
     def save(self, path):
         conv_num = 0
         bn_num = 0
-
+        
+        if os.path.exists(path) == False:
+            os.mkdir(path)
+            
         conv_num = self.pre[0].save(path, conv_num)
         bn_num = self.pre[1].save(path, bn_num)
 
